@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GameState, OnlineRoomInfo, OnlineRoomPlayer, RoomReaction } from '../types/game';
+import { GameState, OnlineRoomInfo, OnlineRoomPlayer, RoomReaction, TraitId } from '../types/game';
 import { Action } from '../state/gameReducer';
 import { sound } from '../utils/audio';
 
@@ -108,7 +108,8 @@ export function useMultiplayerRoom({ onRemoteStateUpdate }: UseMultiplayerRoomPr
     hostName: string,
     siblingId: string,
     customCode?: string,
-    difficulty: 'casual' | 'standard' | 'nightmare' = 'standard'
+    difficulty: 'casual' | 'standard' | 'nightmare' = 'standard',
+    traitId?: TraitId
   ) => {
     setIsConnecting(true);
     setError(null);
@@ -116,7 +117,7 @@ export function useMultiplayerRoom({ onRemoteStateUpdate }: UseMultiplayerRoomPr
       const res = await fetch('/api/rooms/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostName, siblingId, customCode, difficulty }),
+        body: JSON.stringify({ hostName, siblingId, customCode, difficulty, traitId }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -137,14 +138,14 @@ export function useMultiplayerRoom({ onRemoteStateUpdate }: UseMultiplayerRoomPr
   };
 
   // Join room
-  const joinRoom = async (roomId: string, name: string, siblingId: string) => {
+  const joinRoom = async (roomId: string, name: string, siblingId: string, traitId?: TraitId) => {
     setIsConnecting(true);
     setError(null);
     try {
       const res = await fetch('/api/rooms/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, name, siblingId }),
+        body: JSON.stringify({ roomId, name, siblingId, traitId }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -161,6 +162,19 @@ export function useMultiplayerRoom({ onRemoteStateUpdate }: UseMultiplayerRoomPr
       throw err;
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  // Update player in lobby (change sibling, trait, or name)
+  const updatePlayerInLobby = (updates: { name?: string; siblingId?: string; traitId?: TraitId }) => {
+    if (!room || !localPlayerId) return;
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'UPDATE_PLAYER',
+          ...updates,
+        })
+      );
     }
   };
 
@@ -267,6 +281,7 @@ export function useMultiplayerRoom({ onRemoteStateUpdate }: UseMultiplayerRoomPr
     announcement,
     createRoom,
     joinRoom,
+    updatePlayerInLobby,
     startGame,
     dispatchOnlineAction,
     sendReaction,

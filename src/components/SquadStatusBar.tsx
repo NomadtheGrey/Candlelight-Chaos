@@ -11,9 +11,10 @@ import {
   Sword,
   AlertTriangle,
   Settings2,
+  Award,
 } from 'lucide-react';
 import { GameState, PlayerData } from '../types/game';
-import { ROOMS_GRAPH } from '../data/gameData';
+import { ROOMS_GRAPH, MASTER_TRAITS_ROSTER } from '../data/gameData';
 
 interface SquadStatusBarProps {
   state: GameState;
@@ -170,6 +171,54 @@ export const SquadStatusBar: React.FC<SquadStatusBarProps> = ({
                   {player.actionsLeft} AP
                 </span>
               </div>
+
+              {/* Sibling Trait & Evolution Status */}
+              {(() => {
+                const trait = player.trait;
+                if (!trait) return null;
+                const req = trait.evolutionTrigger;
+                const currentProg = player.evolutionProgress || 0;
+                const isEvolved = trait.isEvolved;
+
+                return (
+                  <div
+                    title={isEvolved ? `${trait.evolvedName}: ${trait.evolvedDescription}` : `${trait.name}: ${trait.description}`}
+                    className={`mt-1.5 px-1.5 py-1 rounded text-[9px] border flex flex-col gap-0.5 ${
+                      isEvolved
+                        ? 'bg-amber-950/70 border-amber-500/80 text-amber-200'
+                        : 'bg-slate-900/90 border-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold flex items-center gap-1 truncate">
+                        {isEvolved ? (
+                          <>
+                            <Award className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                            <span className="text-amber-300">{trait.evolvedName}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                            <span>{trait.name}</span>
+                          </>
+                        )}
+                      </span>
+                      <span className="text-[8.5px] font-semibold opacity-80 shrink-0">
+                        {isEvolved ? 'EVOLVED' : `${currentProg}/${req.targetCount}`}
+                      </span>
+                    </div>
+
+                    {!isEvolved && (
+                      <div className="w-full bg-slate-950 rounded-full h-1 overflow-hidden">
+                        <div
+                          className="bg-amber-500 h-full rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min(100, (currentProg / req.targetCount) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Equipped Weapon pill */}
               <div className="mt-1 text-[9.5px] truncate text-slate-400 flex items-center gap-1 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800">

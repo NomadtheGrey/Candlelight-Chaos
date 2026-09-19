@@ -9,6 +9,8 @@ import {
   Wrench,
   Zap,
   ArrowRight,
+  MessageSquare,
+  HeartHandshake,
 } from 'lucide-react';
 import { GameState } from '../types/game';
 import { ROOMS_GRAPH } from '../data/gameData';
@@ -19,6 +21,8 @@ interface ActiveRoomViewProps {
   onSearch: () => void;
   onBarricade: () => void;
   onStartCombat: (goblinId?: string) => void;
+  onParley?: () => void;
+  onCalmBeasts?: () => void;
   onEndTurn: () => void;
   onNextPlayerTurn: () => void;
   onOpenCrafting: () => void;
@@ -33,6 +37,8 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
   onSearch,
   onBarricade,
   onStartCombat,
+  onParley,
+  onCalmBeasts,
   onEndTurn,
   onNextPlayerTurn,
   onOpenCrafting,
@@ -268,6 +274,44 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
           <Shield className="w-4 h-4 text-emerald-400" />
           <span>Barricade Door</span>
         </button>
+
+        {/* Parley (Goblin Talker / Diplomat) */}
+        {hasGoblins && onParley && (
+          <button
+            onClick={onParley}
+            disabled={activePlayer.actionsLeft <= 0}
+            className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-lg font-bold text-xs border flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer ${
+              activePlayer.actionsLeft > 0
+                ? 'bg-purple-950/70 hover:bg-purple-900/80 text-purple-200 border-purple-600/70 shadow-sm'
+                : 'bg-slate-800/40 text-slate-600 border-slate-800 cursor-not-allowed'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4 text-purple-400" />
+            <span>Parley ({activePlayer.trait?.traitId === 'goblin_talker' ? '+Bonus' : 'Talk'})</span>
+          </button>
+        )}
+
+        {/* Calm Beasts (Animal Lover / Beastmaster) */}
+        {activeGoblins.some(
+          (g) =>
+            g.id.startsWith('scrapper_slipper') ||
+            g.name.toLowerCase().includes('hound') ||
+            g.name.toLowerCase().includes('biter') ||
+            g.specialRule.toLowerCase().includes('beast')
+        ) && onCalmBeasts && (
+          <button
+            onClick={onCalmBeasts}
+            disabled={activePlayer.actionsLeft <= 0}
+            className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-lg font-bold text-xs border flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer ${
+              activePlayer.actionsLeft > 0
+                ? 'bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-200 border-emerald-600/70 shadow-sm'
+                : 'bg-slate-800/40 text-slate-600 border-slate-800 cursor-not-allowed'
+            }`}
+          >
+            <HeartHandshake className="w-4 h-4 text-emerald-400" />
+            <span>Calm Beast</span>
+          </button>
+        )}
 
         {/* Craft Kludge */}
         <button

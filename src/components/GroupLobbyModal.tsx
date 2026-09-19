@@ -13,8 +13,8 @@ import {
   UserCheck,
   Gamepad2,
 } from 'lucide-react';
-import { PlayerConfig } from '../types/game';
-import { SIBLINGS_ROSTER } from '../data/gameData';
+import { PlayerConfig, TraitId } from '../types/game';
+import { SIBLINGS_ROSTER, MASTER_TRAITS_ROSTER } from '../data/gameData';
 
 interface GroupLobbyModalProps {
   isOpen: boolean;
@@ -98,6 +98,12 @@ export const GroupLobbyModal: React.FC<GroupLobbyModalProps> = ({
   const handleUpdateSibling = (index: number, siblingId: string) => {
     const updated = [...players];
     updated[index] = { ...updated[index], siblingId };
+    setPlayers(updated);
+  };
+
+  const handleUpdateTrait = (index: number, traitId: TraitId) => {
+    const updated = [...players];
+    updated[index] = { ...updated[index], traitId };
     setPlayers(updated);
   };
 
@@ -251,7 +257,7 @@ export const GroupLobbyModal: React.FC<GroupLobbyModalProps> = ({
                       <select
                         value={p.siblingId}
                         onChange={(e) => handleUpdateSibling(idx, e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-bold focus:outline-none focus:border-amber-500 cursor-pointer mb-2"
                       >
                         {SIBLINGS_ROSTER.map((sib) => (
                           <option key={sib.id} value={sib.id}>
@@ -259,8 +265,23 @@ export const GroupLobbyModal: React.FC<GroupLobbyModalProps> = ({
                           </option>
                         ))}
                       </select>
+
+                      <span className="text-[10px] uppercase font-bold text-amber-400 block mb-1">
+                        Special Sibling Trait
+                      </span>
+                      <select
+                        value={p.traitId || 'animal_lover'}
+                        onChange={(e) => handleUpdateTrait(idx, e.target.value as TraitId)}
+                        className="w-full bg-slate-900 border border-amber-900/50 rounded-lg px-2.5 py-1.5 text-xs text-amber-300 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                      >
+                        {Object.values(MASTER_TRAITS_ROSTER).map((trait) => (
+                          <option key={trait.traitId} value={trait.traitId}>
+                            {trait.name} ({trait.type})
+                          </option>
+                        ))}
+                      </select>
                       <span className="text-[10px] text-slate-400 block mt-1 line-clamp-1 italic">
-                        {assignedSibling.trait}
+                        {MASTER_TRAITS_ROSTER[p.traitId || 'animal_lover']?.description}
                       </span>
                     </div>
                   </div>

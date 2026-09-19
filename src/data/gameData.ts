@@ -1,4 +1,4 @@
-import { RoomNode, ItemCard, KludgeRecipe, GoblinCard, Sibling, RoomId } from '../types/game';
+import { RoomNode, ItemCard, KludgeRecipe, GoblinCard, Sibling, RoomId, SiblingTrait, TraitId } from '../types/game';
 
 // ==========================================
 // 1. ROOMS GRAPH SCHEMA & DEFINITIONS
@@ -240,6 +240,16 @@ export const ITEMS_REGISTRY: Record<string, ItemCard> = {
     fluff: 'A carpenter’s basic supply; weaponized with tape to make deadly studded bludgeons.',
     iconName: 'Target',
     rarity: 'common',
+  },
+  pet_companion: {
+    id: 'pet_companion',
+    name: 'Pet Companion (Card)',
+    type: 'item',
+    category: 'household',
+    description: 'Faithful household pet providing +1 defense pool in combat encounters.',
+    fluff: 'Loyal and fearless. Barks fiercely at intruders, defending the siblings.',
+    iconName: 'Heart',
+    rarity: 'rare',
   },
 };
 
@@ -543,3 +553,539 @@ export const PLAYER_COLORS = [
   { id: 'cyan', bg: 'bg-cyan-500', text: 'text-cyan-400', border: 'border-cyan-500', badge: 'bg-cyan-950/80 text-cyan-300 border-cyan-600' },
   { id: 'purple', bg: 'bg-purple-500', text: 'text-purple-400', border: 'border-purple-500', badge: 'bg-purple-950/80 text-purple-300 border-purple-600' },
 ];
+
+// ==========================================
+// 6. MASTER SIBLING TRAITS & EVOLUTION ROSTER
+// ==========================================
+export const MASTER_TRAITS_ROSTER: Record<TraitId, SiblingTrait> = {
+  animal_lover: {
+    traitId: 'animal_lover',
+    name: 'Animal Lover',
+    category: 'Utility / Combat Support',
+    type: 'Utility / Combat Support',
+    primaryFocus: 'Pet & Beast Synergy',
+    description: 'Pet Companion (+1 defense pool). Calm Beast to pacify enemy beasts. Food/Toy cards double in effect. Evolved: Pack Call.',
+    passive: {
+      name: 'Pet Companion',
+      description: 'Starts with Pet Card providing +1 defense pool in combat encounters.',
+    },
+    active: {
+      name: 'Calm Beast',
+      description: 'Target Beast skips next attack phase or is redirected.',
+    },
+    synergy: {
+      name: 'Animal Bond',
+      description: 'Food/Toy item cards double in effectiveness.',
+    },
+    evolved: {
+      name: 'Pack Call',
+      description: 'Turns all enemy Beasts into temporary allies for 2 turns.',
+    },
+    isEvolved: false,
+    evolvedName: 'Pack Call',
+    evolvedDescription: 'Turns all enemy Beasts into temporary allies for 2 turns.',
+    iconName: 'Heart',
+    baseModifiers: {
+      combatDiceBonus: 1,
+      canCalmBeasts: true,
+      petCompanion: true,
+      synergyFoodToyBonus: true,
+    },
+    evolutionTrigger: {
+      type: 'CALM_OR_DEFEAT_BEAST',
+      description: 'Calm or defeat 2 beast-type enemies',
+      targetCount: 2,
+    },
+    evolvedModifiers: {
+      beastAlliesBonus: 2,
+      packCallTurns: 2,
+    },
+  },
+
+  athlete: {
+    traitId: 'athlete',
+    name: 'Athlete',
+    category: 'Mobility / Physicality',
+    type: 'Mobility / Physicality',
+    primaryFocus: 'Obstacles & Movement',
+    description: 'Nimble Footwork ignores movement penalties. Vault & Slam deals impact damage. Heavy weapons lose speed penalties. Evolved: Adrenaline Rush.',
+    passive: {
+      name: 'Nimble Footwork',
+      description: 'Ignores barricade and clutter room movement penalties.',
+    },
+    active: {
+      name: 'Vault & Slam',
+      description: 'Move to adjacent room and deal 1 HP impact damage to enemies.',
+    },
+    synergy: {
+      name: 'Momentum Mastery',
+      description: 'Heavy/Two-Handed weapons lose speed penalties.',
+    },
+    evolved: {
+      name: 'Adrenaline Rush',
+      description: 'Gain +2 extra actions in a single turn.',
+    },
+    isEvolved: false,
+    evolvedName: 'Adrenaline Rush',
+    evolvedDescription: 'Gain +2 extra actions in a single turn.',
+    iconName: 'Zap',
+    baseModifiers: {
+      freeBarricadeVault: true,
+      rapidMovement: true,
+      synergyHeavySpeedBonus: true,
+    },
+    evolutionTrigger: {
+      type: 'VAULT_OR_MOVE',
+      description: 'Traverse rooms or vault barricades 4 times',
+      targetCount: 4,
+    },
+    evolvedModifiers: {
+      vaultActionRefund: true,
+      moveTwoRooms: true,
+      extraActionsTurn: 2,
+    },
+  },
+
+  big_sibling: {
+    traitId: 'big_sibling',
+    name: 'Big Brother / Sister',
+    category: 'Defensive / Party Protection',
+    type: 'Defensive / Party Protection',
+    primaryFocus: 'Interception & Support',
+    description: 'Guardian Shield absorbs 1 HP for siblings. Draw Attention taunts goblins. Shield/Door cards get +1 Durability. Evolved: Iron Cover.',
+    passive: {
+      name: 'Guardian Shield',
+      description: 'Absorbs 1 HP of damage per round for younger siblings in same room.',
+    },
+    active: {
+      name: 'Draw Attention',
+      description: 'Forces all goblins in room to target this sibling for 1 turn.',
+    },
+    synergy: {
+      name: 'Reinforced Bulk',
+      description: 'Shield/Door cards gain +1 Durability.',
+    },
+    evolved: {
+      name: 'Iron Cover',
+      description: '50% chance to nullify damage completely when taking hits for allies.',
+    },
+    isEvolved: false,
+    evolvedName: 'Iron Cover',
+    evolvedDescription: '50% chance to nullify damage completely when taking hits for allies.',
+    iconName: 'Shield',
+    baseModifiers: {
+      absorbAllyDamage: true,
+      synergyShieldDurabilityBonus: true,
+    },
+    evolutionTrigger: {
+      type: 'PROTECT_SIBLING',
+      description: 'Fight alongside or protect an ally in the same room 2 times',
+      targetCount: 2,
+    },
+    evolvedModifiers: {
+      absorbCapacity: 2,
+      alliedCombatBonus: 1,
+      ironCoverNullifyChance: 0.5,
+    },
+  },
+
+  brawler: {
+    traitId: 'brawler',
+    name: 'Brawler',
+    category: 'Unarmed Combat',
+    type: 'Unarmed Combat',
+    primaryFocus: 'Improvised Striking',
+    description: 'Street Smarts gives full 1d6 unarmed damage. Grapple & Toss disarms and throws goblins. Improvised weapons gain +1 Attack. Evolved: Heavy Hitter.',
+    passive: {
+      name: 'Street Smarts',
+      description: 'Unarmed/Improvised attacks deal full standard 1d6 damage without penalty.',
+    },
+    active: {
+      name: 'Grapple & Toss',
+      description: 'Disarm Tier 1/2 goblin, steal weapon card, throw enemy into adjacent room.',
+    },
+    synergy: {
+      name: 'Improvised Mayhem',
+      description: 'Improvised weapons gain +1 Attack Pool.',
+    },
+    evolved: {
+      name: 'Heavy Hitter',
+      description: 'Unarmed attacks crit on 5 or 6.',
+    },
+    isEvolved: false,
+    evolvedName: 'Heavy Hitter',
+    evolvedDescription: 'Unarmed attacks crit on 5 or 6.',
+    iconName: 'Swords',
+    baseModifiers: {
+      ignoreUnarmedPenalty: true,
+      synergyImprovisedAttackBonus: true,
+    },
+    evolutionTrigger: {
+      type: 'COMBAT_WIN',
+      description: 'Win 2 combat encounters or defeat a goblin unarmed',
+      targetCount: 2,
+    },
+    evolvedModifiers: {
+      unarmedDiceBonus: 1,
+      unarmedKnockback: true,
+      unarmedCritOnFive: true,
+    },
+  },
+
+  goblin_talker: {
+    traitId: 'goblin_talker',
+    name: 'Goblin Talker',
+    category: 'Social / Tactical',
+    type: 'Social / Tactical',
+    primaryFocus: 'Negotiation & Parley',
+    description: 'Translator reveals incoming tactics. Parley freezes room Threat escalation. Can trade junk to buy off attacks. Evolved: Master Manipulator.',
+    passive: {
+      name: 'Translator',
+      description: 'Reveals incoming goblin tactics in narrative UI feed.',
+    },
+    active: {
+      name: 'Parley',
+      description: 'Freezes room Threat Level escalation for 1 turn and pacifies goblins.',
+    },
+    synergy: {
+      name: 'Black Market Barter',
+      description: 'Can trade junk item cards directly to goblins to buy off attacks.',
+    },
+    evolved: {
+      name: 'Master Manipulator',
+      description: 'Forces goblin wave to attack each other for 1 round.',
+    },
+    isEvolved: false,
+    evolvedName: 'Master Manipulator',
+    evolvedDescription: 'Forces goblin wave to attack each other for 1 round.',
+    iconName: 'MessageSquare',
+    baseModifiers: {
+      canParley: true,
+      synergyBribeJunk: true,
+    },
+    evolutionTrigger: {
+      type: 'PARLEY_SUCCESS',
+      description: 'Successfully execute 2 Parley negotiations with goblins',
+      targetCount: 2,
+    },
+    evolvedModifiers: {
+      freeParleyBribe: true,
+      masterManipulatorTurns: 1,
+    },
+  },
+
+  kludge_master: {
+    traitId: 'kludge_master',
+    name: 'Kludge Master',
+    category: 'Crafting / Junk Magic',
+    type: 'Crafting / Junk Magic',
+    primaryFocus: 'Item Synthesis',
+    description: 'Tinker adds +1 Durability/Attack. Scrap Salvage recovers materials. Reduces 3-component crafting to 2. Evolved: Junk Architect.',
+    passive: {
+      name: 'Tinker',
+      description: '+1 Durability and +1 Attack to all synthesized Kludge Cards.',
+    },
+    active: {
+      name: 'Scrap Salvage',
+      description: 'Destroy broken weapon/item to recover 1 raw material card.',
+    },
+    synergy: {
+      name: 'Efficient Assembly',
+      description: 'Reduces 3-component crafting recipes to 2 components.',
+    },
+    evolved: {
+      name: 'Junk Architect',
+      description: 'Kludge weapons gain +1 Hand Slot and lose no durability on crits.',
+    },
+    isEvolved: false,
+    evolvedName: 'Junk Architect',
+    evolvedDescription: 'Kludge weapons gain +1 Hand Slot and lose no durability on crits.',
+    iconName: 'Wrench',
+    baseModifiers: {
+      craftingBonus: 1,
+      durabilityBonus: 1,
+      synergyReducedCraftCost: true,
+    },
+    evolutionTrigger: {
+      type: 'CRAFT_ITEM',
+      description: 'Craft 2 Kludge weapons (or in a Threat 3+ room)',
+      targetCount: 2,
+      requiredTier: 3,
+      minRoomThreat: 4,
+    },
+    evolvedModifiers: {
+      craftingBonus: 2,
+      durabilityBonus: 2,
+      ignoreDurabilityLossOnCrit: true,
+    },
+  },
+
+  lightfoot: {
+    traitId: 'lightfoot',
+    name: 'Lightfoot',
+    category: 'Stealth / Evasion',
+    type: 'Stealth / Evasion',
+    primaryFocus: 'Silent Traversal',
+    description: 'Silent Footsteps (50% bypass combat). Slinking Scout peeks ahead. Trap/Distraction cards gain double AoE. Evolved: Shadow Step.',
+    passive: {
+      name: 'Silent Footsteps',
+      description: '50% chance to bypass combat in Threat Level 3–4 rooms.',
+    },
+    active: {
+      name: 'Slinking Scout',
+      description: 'Peeks into adjacent room node to reveal loot/enemies safely.',
+    },
+    synergy: {
+      name: 'Tactical Trapper',
+      description: 'Trap/Distraction cards gain double area-of-effect.',
+    },
+    evolved: {
+      name: 'Shadow Step',
+      description: 'Disappear from active combat to perform a free safe retreat.',
+    },
+    isEvolved: false,
+    evolvedName: 'Shadow Step',
+    evolvedDescription: 'Disappear from active combat to perform a free safe retreat.',
+    iconName: 'Footprints',
+    baseModifiers: {
+      stealthMaster: true,
+      synergyTrapDoubleAoe: true,
+    },
+    evolutionTrigger: {
+      type: 'STEALTH_TRAVERSE',
+      description: 'Traverse 3 rooms without triggering combat encounters',
+      targetCount: 3,
+    },
+    evolvedModifiers: {
+      stealthMaster: true,
+      alliedCombatBonus: 1,
+      safeCombatRetreat: true,
+    },
+  },
+
+  night_eyes: {
+    traitId: 'night_eyes',
+    name: 'Night Eyes',
+    category: 'Perception / Exploration',
+    type: 'Perception / Exploration',
+    primaryFocus: 'Dark Rooms & Ambush Detection',
+    description: 'Darkvision ignores dark penalties. Ambush Spotter disarms traps. Light sources last twice as long. Evolved: Predictive Vision.',
+    passive: {
+      name: 'Darkvision',
+      description: 'Ignores dark room penalties; +20% search rate in dark nodes.',
+    },
+    active: {
+      name: 'Ambush Spotter',
+      description: 'Highlights and disarms hidden goblin traps before entering.',
+    },
+    synergy: {
+      name: 'Luminance Mastery',
+      description: 'Light source cards last twice as long in inventory.',
+    },
+    evolved: {
+      name: 'Predictive Vision',
+      description: '+1d6 attack pool in dark rooms and guaranteed first strike.',
+    },
+    isEvolved: false,
+    evolvedName: 'Predictive Vision',
+    evolvedDescription: '+1d6 attack pool in dark rooms and guaranteed first strike.',
+    iconName: 'Eye',
+    baseModifiers: {
+      ignoreVisionPenalty: true,
+      synergyLightDurationBonus: true,
+    },
+    evolutionTrigger: {
+      type: 'DARK_ROOM_SEARCH',
+      description: 'Explore or search Basement or Attic 2 times',
+      targetCount: 2,
+    },
+    evolvedModifiers: {
+      trueSightDarkRoom: true,
+      alliedCombatBonus: 1,
+    },
+  },
+
+  pack_leader: {
+    traitId: 'pack_leader',
+    name: 'Pack Leader',
+    category: 'Group Tactics',
+    type: 'Group Tactics',
+    primaryFocus: 'Coordinated Assault',
+    description: 'Rallying Aura (+1d6 to allies in room). Focus Fire marks enemies (+1 dmg). Consumables buff all siblings. Evolved: Commander.',
+    passive: {
+      name: 'Rallying Aura',
+      description: '+1d6 combat pool to all allies in the same room.',
+    },
+    active: {
+      name: 'Focus Fire',
+      description: 'Designates 1 enemy card; allies deal +1 damage to target this round.',
+    },
+    synergy: {
+      name: 'Shared Rationing',
+      description: 'Consumable buff cards affect all siblings in the same room node.',
+    },
+    evolved: {
+      name: 'Commander',
+      description: 'Grants an ally in the room 1 free action out of turn sequence.',
+    },
+    isEvolved: false,
+    evolvedName: 'Commander',
+    evolvedDescription: 'Grants an ally in the room 1 free action out of turn sequence.',
+    iconName: 'Users',
+    baseModifiers: {
+      alliedCombatBonus: 1,
+      synergyBuffAllSiblings: true,
+    },
+    evolutionTrigger: {
+      type: 'GROUP_COMBAT',
+      description: 'Win 2 combat encounters with an allied sibling present in the same room',
+      targetCount: 2,
+    },
+    evolvedModifiers: {
+      alliedCombatBonus: 2,
+      commanderFreeAction: true,
+    },
+  },
+
+  quick_stepper: {
+    traitId: 'quick_stepper',
+    name: 'Quick Stepper',
+    category: 'Initiative & Speed',
+    type: 'Initiative & Speed',
+    primaryFocus: 'Rapid Movement',
+    description: 'Fleet Footed traverses 2 rooms per movement. Evasive Shift dodges all incoming attacks. Mobility cards cost 0 AP. Evolved: Lightning Blitz.',
+    passive: {
+      name: 'Fleet Footed',
+      description: 'Traverse up to 2 connected room nodes per movement action.',
+    },
+    active: {
+      name: 'Evasive Shift',
+      description: 'Dodges all incoming attacks for 1 round; cannot attack.',
+    },
+    synergy: {
+      name: 'Frictionless Sprint',
+      description: 'Mobility/Utility cards cost 0 action points to play.',
+    },
+    evolved: {
+      name: 'Lightning Blitz',
+      description: 'Move into room, attack goblin, retreat to previous room in 1 turn.',
+    },
+    isEvolved: false,
+    evolvedName: 'Lightning Blitz',
+    evolvedDescription: 'Move into room, attack goblin, retreat to previous room in 1 turn.',
+    iconName: 'FastForward',
+    baseModifiers: {
+      rapidMovement: true,
+      synergyMobilityZeroCost: true,
+    },
+    evolutionTrigger: {
+      type: 'MOVE_COUNT',
+      description: 'Move between rooms 4 times',
+      targetCount: 4,
+    },
+    evolvedModifiers: {
+      moveTwoRooms: true,
+      lightningBlitz: true,
+    },
+  },
+
+  scavenger: {
+    traitId: 'scavenger',
+    name: 'Scavenger',
+    category: 'Resource Retrieval',
+    type: 'Resource Retrieval',
+    primaryFocus: 'Loot Optimizing',
+    description: 'Keen Eye drops 2 item cards per search. Rummage re-rolls search check. Hand limit increased to 7 cards. Evolved: Deep Cache.',
+    passive: {
+      name: 'Keen Eye',
+      description: 'Room searches drop 2 Item Cards instead of 1.',
+    },
+    active: {
+      name: 'Rummage',
+      description: 'Re-roll a search check once per turn.',
+    },
+    synergy: {
+      name: 'Deep Pockets',
+      description: 'Inventory hand limit increased from 5 to 7 cards.',
+    },
+    evolved: {
+      name: 'Deep Cache',
+      description: 'Allows searching an already empty/looted room one additional time.',
+    },
+    isEvolved: false,
+    evolvedName: 'Deep Cache',
+    evolvedDescription: 'Allows searching an already empty/looted room one additional time.',
+    iconName: 'Package',
+    baseModifiers: {
+      rerollSearch: true,
+      doubleSearchLoot: true,
+      maxHandSizeBonus: 2,
+    },
+    evolutionTrigger: {
+      type: 'SEARCH_COUNT',
+      description: 'Search rooms 3 times for junk materials',
+      targetCount: 3,
+    },
+    evolvedModifiers: {
+      doubleSearchDrop: true,
+      deepCacheAllowed: true,
+    },
+  },
+
+  survivor: {
+    traitId: 'survivor',
+    name: 'Survivor',
+    category: 'Resilience',
+    type: 'Resilience',
+    primaryFocus: 'Endurance',
+    description: 'Resilient Spirit (+2 Max HP). Second Wind restores 2 HP below 25% once per session. Healing cards give +1 HP. Evolved: Diehard.',
+    passive: {
+      name: 'Resilient Spirit',
+      description: '+2 Max HP.',
+    },
+    active: {
+      name: 'Second Wind',
+      description: 'Instantly restores 2 HP when below 25% health once per session.',
+    },
+    synergy: {
+      name: 'Field Medicine',
+      description: 'Healing item cards restore +1 extra HP on self.',
+    },
+    evolved: {
+      name: 'Diehard',
+      description: 'Survive fatal blow at 1 HP and gain invulnerability for 1 round.',
+    },
+    isEvolved: false,
+    evolvedName: 'Diehard',
+    evolvedDescription: 'Survive fatal blow at 1 HP and gain invulnerability for 1 round.',
+    iconName: 'Heart',
+    baseModifiers: {
+      maxHpBonus: 2,
+      synergyHealingBonus: true,
+    },
+    evolutionTrigger: {
+      type: 'SURVIVE_LOW_HP',
+      description: 'Survive combat at low health or activate Death Ward',
+      targetCount: 1,
+    },
+    evolvedModifiers: {
+      combatHpRegen: true,
+      diehardInvulnerability: true,
+    },
+  },
+};
+
+export function getDefaultTraitForSibling(siblingId: string): SiblingTrait {
+  switch (siblingId) {
+    case 'leo':
+      return { ...MASTER_TRAITS_ROSTER.kludge_master };
+    case 'maya':
+      return { ...MASTER_TRAITS_ROSTER.scavenger };
+    case 'sam':
+      return { ...MASTER_TRAITS_ROSTER.survivor };
+    case 'clara':
+      return { ...MASTER_TRAITS_ROSTER.brawler };
+    default:
+      return { ...MASTER_TRAITS_ROSTER.kludge_master };
+  }
+}

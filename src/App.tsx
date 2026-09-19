@@ -118,6 +118,16 @@ export default function App() {
     dispatchWithSync({ type: 'CLOSE_COMBAT' });
   };
 
+  const handleParley = () => {
+    sound.playCardSelect();
+    dispatchWithSync({ type: 'PARLEY_GOBLINS' });
+  };
+
+  const handleCalmBeasts = () => {
+    sound.playCardSelect();
+    dispatchWithSync({ type: 'CALM_BEASTS' });
+  };
+
   const handleEndTurn = () => {
     sound.playAlertThreat();
     dispatchWithSync({ type: 'END_TURN_DIRECTOR' });
@@ -373,6 +383,8 @@ export default function App() {
               onSearch={handleSearch}
               onBarricade={handleBarricade}
               onStartCombat={handleStartCombat}
+              onParley={handleParley}
+              onCalmBeasts={handleCalmBeasts}
               onEndTurn={handleEndTurn}
               onNextPlayerTurn={handleNextPlayerTurn}
               onOpenCrafting={() => setShowCrafting(true)}
@@ -426,6 +438,7 @@ export default function App() {
         error={multiplayer.error}
         onCreateRoom={multiplayer.createRoom}
         onJoinRoom={multiplayer.joinRoom}
+        onUpdatePlayer={multiplayer.updatePlayerInLobby}
         onStartGame={multiplayer.startGame}
         onSwitchToLocalGroup={() => setShowLocalLobbyModal(true)}
       />
@@ -439,6 +452,7 @@ export default function App() {
           id: p.id,
           name: p.name,
           siblingId: p.sibling.id,
+          traitId: p.trait?.traitId,
           color: 'amber',
         }))}
         currentGameMode={state.gameMode}

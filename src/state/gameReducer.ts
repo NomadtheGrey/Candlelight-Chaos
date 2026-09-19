@@ -11,6 +11,8 @@ import {
   Sibling,
   PlayerData,
   PlayerConfig,
+  SiblingTrait,
+  TraitId,
 } from '../types/game';
 import {
   ROOMS_GRAPH,
@@ -19,6 +21,8 @@ import {
   GOBLIN_ROSTER,
   SIBLINGS_ROSTER,
   PLAYER_COLORS,
+  MASTER_TRAITS_ROSTER,
+  getDefaultTraitForSibling,
 } from '../data/gameData';
 
 export type Action =
@@ -33,6 +37,10 @@ export type Action =
   | { type: 'START_COMBAT'; goblinId?: string }
   | { type: 'ROLL_COMBAT_ROUND' }
   | { type: 'CLOSE_COMBAT' }
+  | { type: 'PARLEY_GOBLINS' }
+  | { type: 'CALM_BEASTS' }
+  | { type: 'EVOLVE_TRAIT'; playerId: string }
+  | { type: 'SELECT_TRAIT'; playerId: string; traitId: TraitId }
   | { type: 'END_TURN_DIRECTOR' }
   | { type: 'NEXT_PLAYER_TURN' }
   | { type: 'SWITCH_ACTIVE_PLAYER'; playerIndex: number }
@@ -184,19 +192,32 @@ export function createInitialState(param?: string | InitialSetupParams): GameSta
 
   const players: PlayerData[] = configs.map((cfg, idx) => {
     const sibling = SIBLINGS_ROSTER.find((s) => s.id === cfg.siblingId) || SIBLINGS_ROSTER[idx % SIBLINGS_ROSTER.length];
+    const trait = cfg.traitId && MASTER_TRAITS_ROSTER[cfg.traitId]
+      ? { ...MASTER_TRAITS_ROSTER[cfg.traitId] }
+      : getDefaultTraitForSibling(sibling.id);
+
+    const maxHpBonus = trait.baseModifiers.maxHpBonus || 0;
+    const baseHp = sibling.hp + maxHpBonus;
+    const baseMaxHp = sibling.maxHp + maxHpBonus;
+
     return {
       id: cfg.id,
       name: cfg.name,
       sibling,
+      trait,
+      evolutionProgress: 0,
+      evolutionGoal: trait.evolutionTrigger.targetCount,
       currentRoom: 'living_room',
-      hp: sibling.hp,
-      maxHp: sibling.maxHp,
+      hp: baseHp,
+      maxHp: baseMaxHp,
       hand: getStarterCards(sibling.id),
       equippedWeaponId: null,
       actionsLeft: 2,
       maxActions: 2,
       hasTakenTurnThisRound: false,
       isDowned: false,
+      deathWardUsed: false,
+      bigSiblingAbsorbedThisRound: false,
     };
   });
 
@@ -297,6 +318,53 @@ function rollPool(count: number): number[] {
     results.push(rollD6());
   }
   return results;
+}
+
+function advancePlayerEvolution(
+  player: PlayerData,
+  triggerType: string,
+  amount: number = 1
+): { updatedPlayer: PlayerData; evolvedLog?: GameLogEntry } {
+  if (player.trait.isEvolved) {
+    return { updatedPlayer: player };
+  }
+
+  if (player.trait.evolutionTrigger.type === triggerType) {
+    const nextProg = player.evolutionProgress + amount;
+    if (nextProg >= player.evolutionGoal) {
+      const evolvedTrait: SiblingTrait = {
+        ...player.trait,
+        isEvolved: true,
+      };
+
+      const log: GameLogEntry = {
+        id: `evolve_${Date.now()}_${player.id}`,
+        turn: 0,
+        category: 'narrative',
+        timestamp: 'TRAIT EVOLVED!',
+        title: `★ ${player.name}'s Trait Evolved: ${evolvedTrait.evolvedName}!`,
+        message: `${player.name} mastered "${player.trait.name}"! Unlocked: ${evolvedTrait.evolvedDescription}`,
+      };
+
+      return {
+        updatedPlayer: {
+          ...player,
+          trait: evolvedTrait,
+          evolutionProgress: player.evolutionGoal,
+        },
+        evolvedLog: log,
+      };
+    } else {
+      return {
+        updatedPlayer: {
+          ...player,
+          evolutionProgress: nextProg,
+        },
+      };
+    }
+  }
+
+  return { updatedPlayer: player };
 }
 
 function executeDirectorEscalation(state: GameState): GameState {
@@ -536,12 +604,35 @@ export function gameReducer(state: GameState, action: Action): GameState {
       let hpLoss = 0;
       let penaltyNote = '';
 
-      if (state.phase === 'combat' && state.activeEnemies.length > 0) {
+      // Quick Stepper trait ignores flee penalty
+      const isQuickStepper = activePlayer.trait.traitId === 'quick_stepper';
+
+      if (state.phase === 'combat' && state.activeEnemies.length > 0 && !isQuickStepper) {
         const hasSlipperBiter = state.activeEnemies.some((g) => g.id.startsWith('scrapper_slipper'));
         if (hasSlipperBiter) {
           hpLoss = 1;
           penaltyNote = ' A Slipper Biter nipped your heel for 1 damage as you fled!';
         }
+      } else if (isQuickStepper && state.phase === 'combat') {
+        penaltyNote = ' (Quick Stepper slipped past the goblins effortlessly!)';
+      }
+
+      // Athlete trait check: vaulting barricade
+      const destRoomState = state.houseState[action.roomId];
+      let apSpent = 1;
+      if (activePlayer.trait.traitId === 'athlete') {
+        if (destRoomState.barricadeLevel > 0) {
+          penaltyNote += ' (Athlete vaulted the fortified barricade cleanly!)';
+          if (activePlayer.trait.isEvolved) {
+            apSpent = 0; // Champion Hurdler refunds 1 AP
+            penaltyNote += ' [Champion Hurdler: 1 AP Refunded!]';
+          }
+        }
+      }
+
+      // Lightfoot trait: high threat stealth
+      if (activePlayer.trait.traitId === 'lightfoot' && destRoomState.threatLevel >= 3) {
+        penaltyNote += ' [Lightfoot: Moved silently through high-threat corridor!]';
       }
 
       const newHp = Math.max(0, activePlayer.hp - hpLoss);
@@ -556,10 +647,29 @@ export function gameReducer(state: GameState, action: Action): GameState {
         }`,
       };
 
+      // Trait Evolution advances
+      let evoPlayer = activePlayer;
+      let evoLogs: GameLogEntry[] = [];
+
+      if (isQuickStepper) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'MOVE_COUNT', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      } else if (activePlayer.trait.traitId === 'athlete') {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'VAULT_OR_MOVE', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      } else if (activePlayer.trait.traitId === 'lightfoot') {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'STEALTH_TRAVERSE', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      }
+
       const nextState = updateActivePlayerData(state, (p) => ({
+        ...evoPlayer,
         currentRoom: action.roomId,
         hp: newHp,
-        actionsLeft: Math.max(0, p.actionsLeft - 1),
+        actionsLeft: Math.max(0, p.actionsLeft - apSpent),
       }));
 
       return {
@@ -567,7 +677,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         activeEnemies: nextRoomGoblins,
         phase: nextRoomGoblins.length > 0 ? 'combat' : 'exploration',
         activeDuel: null,
-        gameLog: [moveLog, ...state.gameLog],
+        gameLog: [...evoLogs, moveLog, ...state.gameLog],
       };
     }
 
@@ -609,13 +719,47 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const foundItem = ITEMS_REGISTRY[chosenItemId] || ITEMS_REGISTRY['fork'];
       const newItems: PlayerCard[] = [{ ...foundItem, id: `${foundItem.id}_${Date.now()}` }];
 
-      // Maya trait: Keen Senses
-      if (activePlayer.sibling.id === 'maya' && Math.random() > 0.4) {
+      // Scavenger trait: Master Hoarder (drops 2 item cards instead of 1)
+      const isScavenger = activePlayer.trait.traitId === 'scavenger';
+      if (isScavenger && activePlayer.trait.isEvolved) {
+        const secondItemIndex = Math.floor(Math.random() * room.searchTable.length);
+        const secondItem = ITEMS_REGISTRY[room.searchTable[secondItemIndex].itemId];
+        if (secondItem) {
+          newItems.push({ ...secondItem, id: `${secondItem.id}_hoard_${Date.now()}` });
+        }
+      }
+
+      // Night Eyes trait: exploration bonus in Basement or Attic
+      const isNightEyes = activePlayer.trait.traitId === 'night_eyes';
+      const isDarkRoom = activePlayer.currentRoom === 'basement' || activePlayer.currentRoom === 'attic';
+      if (isNightEyes && isDarkRoom && activePlayer.trait.isEvolved) {
+        const bonusEntry = room.searchTable[0];
+        const bonusItem = ITEMS_REGISTRY[bonusEntry.itemId];
+        if (bonusItem) {
+          newItems.push({ ...bonusItem, id: `${bonusItem.id}_truesight_${Date.now()}` });
+        }
+      }
+
+      // Maya signature trait: Keen Senses
+      if (activePlayer.sibling.id === 'maya' && Math.random() > 0.4 && !isScavenger) {
         const bonusItemId = room.searchTable[Math.floor(Math.random() * room.searchTable.length)].itemId;
         const bonusItem = ITEMS_REGISTRY[bonusItemId];
         if (bonusItem) {
           newItems.push({ ...bonusItem, id: `${bonusItem.id}_bonus_${Date.now()}` });
         }
+      }
+
+      // Evolution advances
+      let evoPlayer = activePlayer;
+      let evoLogs: GameLogEntry[] = [];
+      if (isScavenger) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'SEARCH_COUNT', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      } else if (isNightEyes && isDarkRoom) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'DARK_ROOM_SEARCH', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
       }
 
       const updatedHouseState = {
@@ -632,10 +776,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
         category: 'search',
         timestamp: `Round ${state.roundNumber}`,
         title: `Scavenged in ${room.name}`,
-        message: `${activePlayer.name} found ${newItems.map((i) => `[${i.name}]`).join(' and ')} in the ${room.name}!`,
+        message: `${activePlayer.name} found ${newItems.map((i) => `[${i.name}]`).join(' and ')} in the ${room.name}!${
+          isScavenger && activePlayer.trait.isEvolved ? ' (Master Hoarder double yield!)' : ''
+        }`,
       };
 
       const nextState = updateActivePlayerData(state, (p) => ({
+        ...evoPlayer,
         hand: [...p.hand, ...newItems],
         actionsLeft: Math.max(0, p.actionsLeft - 1),
       }));
@@ -643,7 +790,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
       return {
         ...nextState,
         houseState: updatedHouseState,
-        gameLog: [searchLog, ...state.gameLog],
+        gameLog: [...evoLogs, searchLog, ...state.gameLog],
       };
     }
 
@@ -717,8 +864,14 @@ export function gameReducer(state: GameState, action: Action): GameState {
         return r.requiredItemIds.every((reqId) => baseIds.includes(reqId));
       });
 
+      // Kludge Master trait check
+      const isKludgeMaster = activePlayer.trait.traitId === 'kludge_master';
+      const isEvolvedKludge = isKludgeMaster && activePlayer.trait.isEvolved;
+      const traitAttackBonus = isEvolvedKludge ? 2 : isKludgeMaster ? 1 : 0;
+      const traitDurabilityBonus = isEvolvedKludge ? 2 : isKludgeMaster ? 1 : 0;
+
       // Bonus for Leo: Master Kludger (+1 durability)
-      const leoDurabilityBonus = activePlayer.sibling.id === 'leo' ? 1 : 0;
+      const leoDurabilityBonus = (activePlayer.sibling.id === 'leo' ? 1 : 0) + traitDurabilityBonus;
 
       let newKludgeWeapon: KludgeWeaponCard;
       if (matchedRecipe) {
@@ -728,11 +881,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
           type: 'kludge_weapon',
           recipeItemNames: selectedCards.map((c) => c.name),
           description: matchedRecipe.description,
-          attackDiceBonus: matchedRecipe.attackDiceBonus,
+          attackDiceBonus: matchedRecipe.attackDiceBonus + traitAttackBonus,
           defenseBonus: matchedRecipe.defenseBonus,
           durability: matchedRecipe.durability + leoDurabilityBonus,
           maxDurability: matchedRecipe.durability + leoDurabilityBonus,
-          specialRule: matchedRecipe.specialRule,
+          specialRule: isEvolvedKludge
+            ? `${matchedRecipe.specialRule} | Junk Architect: Durability is preserved on critical rolls (6)!`
+            : matchedRecipe.specialRule,
           iconName: matchedRecipe.iconName,
         };
       } else {
@@ -743,11 +898,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
           type: 'kludge_weapon',
           recipeItemNames: selectedCards.map((c) => c.name),
           description: `A hastily assembled defensive kludge bound with wires and grit.`,
-          attackDiceBonus: 1,
+          attackDiceBonus: 1 + traitAttackBonus,
           defenseBonus: 1,
           durability: 3 + leoDurabilityBonus,
           maxDurability: 3 + leoDurabilityBonus,
-          specialRule: 'Improvised Strike: Reliable blunt force.',
+          specialRule: isEvolvedKludge
+            ? 'Improvised Strike. Junk Architect: Preserves durability on 6s.'
+            : 'Improvised Strike: Reliable blunt force.',
           iconName: 'Wrench',
         };
       }
@@ -767,10 +924,22 @@ export function gameReducer(state: GameState, action: Action): GameState {
         category: 'craft',
         timestamp: `Round ${state.roundNumber}`,
         title: `Forged ${newKludgeWeapon.name}!`,
-        message: `${activePlayer.name} combined [${selectedCards.map((c) => c.name).join(' + ')}] into [${newKludgeWeapon.name}]!`,
+        message: `${activePlayer.name} combined [${selectedCards.map((c) => c.name).join(' + ')}] into [${newKludgeWeapon.name}]!${
+          isKludgeMaster ? ' (Kludge Master weapon reinforcement applied!)' : ''
+        }`,
       };
 
+      // Advance evolution for Kludge Master
+      let evoPlayer = activePlayer;
+      let evoLogs: GameLogEntry[] = [];
+      if (isKludgeMaster) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'CRAFT_ITEM', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      }
+
       const nextState = updateActivePlayerData(state, (p) => ({
+        ...evoPlayer,
         hand: updatedHand,
         equippedWeaponId: newKludgeWeapon.id,
         actionsLeft: Math.max(0, p.actionsLeft - 1),
@@ -780,7 +949,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         ...nextState,
         selectedCraftCardIds: [],
         discoveredRecipes: discovered,
-        gameLog: [craftLog, ...state.gameLog],
+        gameLog: [...evoLogs, craftLog, ...state.gameLog],
       };
     }
 
@@ -963,20 +1132,43 @@ export function gameReducer(state: GameState, action: Action): GameState {
         (c) => c.id === activePlayer.equippedWeaponId && c.type === 'kludge_weapon'
       ) as KludgeWeaponCard | undefined;
 
-      const weaponBonusDice = equipped ? equipped.attackDiceBonus : 0;
-      // Co-Op bonus: if teammate is present in room, +1 Assist Die!
-      const assistBonus = state.activeDuel.assistSibling ? 1 : 0;
+      const isBeast = goblin.id.startsWith('scrapper_slipper') ||
+        goblin.name.toLowerCase().includes('hound') ||
+        goblin.name.toLowerCase().includes('biter') ||
+        goblin.name.toLowerCase().includes('gremlin') ||
+        goblin.specialRule.toLowerCase().includes('beast');
+
+      // Trait Checks
+      const isBrawler = activePlayer.trait.traitId === 'brawler';
+      const isEvolvedBrawler = isBrawler && activePlayer.trait.isEvolved;
+
+      const isPackLeader = activePlayer.trait.traitId === 'pack_leader';
+      const isEvolvedPackLeader = isPackLeader && activePlayer.trait.isEvolved;
+
+      const isAnimalLover = activePlayer.trait.traitId === 'animal_lover';
+      const isEvolvedAnimalLover = isAnimalLover && activePlayer.trait.isEvolved;
+
+      const isBigSibling = activePlayer.trait.traitId === 'big_sibling';
+      const isEvolvedBigSibling = isBigSibling && activePlayer.trait.isEvolved;
+
+      const weaponBonusDice = equipped ? equipped.attackDiceBonus : (isEvolvedBrawler ? 2 : isBrawler ? 1 : 0);
+      // Co-Op bonus: if teammate is present in room, +1 Assist Die (or +2 with Pack Leader)
+      const hasAssist = !!state.activeDuel.assistSibling;
+      const packLeaderBonus = (isPackLeader && hasAssist) ? 1 : 0;
+      const animalLoverBonus = (isAnimalLover && isBeast) ? 1 : 0;
+      const assistBonus = (hasAssist ? 1 : 0) + packLeaderBonus;
       // Clara bonus if using chemical kludge
       const claraBonus = activePlayer.sibling.id === 'clara' && equipped?.specialRule.includes('Acid') ? 1 : 0;
 
       const playerPoolSize = Math.max(
         1,
-        activePlayer.sibling.baseDicePool + weaponBonusDice + assistBonus + claraBonus
+        activePlayer.sibling.baseDicePool + weaponBonusDice + assistBonus + claraBonus + animalLoverBonus
       );
       const playerDice = rollPool(playerPoolSize);
 
+      const beastWhispererDebuff = (isEvolvedAnimalLover && isBeast) ? 2 : 0;
       const goblinBonusDice = (goblin.isBuffed ? 1 : 0) + (goblin.attackModifier || 0);
-      const goblinPoolSize = Math.max(1, goblin.dicePool + goblinBonusDice);
+      const goblinPoolSize = Math.max(1, goblin.dicePool + goblinBonusDice - beastWhispererDebuff);
       const goblinDice = rollPool(goblinPoolSize);
 
       let playerHighest = Math.max(...playerDice);
@@ -1009,7 +1201,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         if (equipped?.name.includes('Snap-Jaw') && goblin.tier === 1 && playerHighest >= 5) damageDealt = 99;
 
         const assistNote = state.activeDuel.assistPlayerName
-          ? ` (Assisted by ${state.activeDuel.assistPlayerName}!)`
+          ? ` (Assisted by ${state.activeDuel.assistPlayerName}${isPackLeader ? ' - Pack Leader bonus!' : ''}!)`
           : '';
 
         roundSummary = winner === 'player'
@@ -1017,34 +1209,76 @@ export function gameReducer(state: GameState, action: Action): GameState {
           : `Defender's Tie! On tied high die of ${playerHighest}, the siblings hold the line! Dealt ${damageDealt} damage!${assistNote}`;
       } else {
         const margin = goblinHighest - playerHighest;
-        const defenseReduction = equipped ? equipped.defenseBonus : 0;
+        const defenseReduction = (equipped ? equipped.defenseBonus : 0) + (isEvolvedPackLeader && hasAssist ? 1 : 0);
         damageTaken = Math.max(1, margin + 1 - defenseReduction);
 
-        roundSummary = `Goblin strikes back! Rolled [${goblinDice.join(', ')}] vs your [${playerDice.join(', ')}]. Took ${damageTaken} damage!`;
+        if (isBigSibling && hasAssist) {
+          const absorb = isEvolvedBigSibling ? 2 : 1;
+          damageTaken = Math.max(0, damageTaken - absorb);
+          roundSummary = `Big Sibling shielded the team (-${absorb} dmg)! `;
+        }
+
+        roundSummary += `Goblin strikes back! Rolled [${goblinDice.join(', ')}] vs your [${playerDice.join(', ')}]. Took ${damageTaken} damage!`;
       }
 
-      const updatedGoblinHp = Math.max(0, goblin.hp - damageDealt);
-      const updatedPlayerHp = Math.max(0, activePlayer.hp - damageTaken);
+      let updatedGoblinHp = Math.max(0, goblin.hp - damageDealt);
+      let updatedPlayerHp = Math.max(0, activePlayer.hp - damageTaken);
+
+      // Survivor Trait: Death Ward check
+      let deathWardUsed = activePlayer.deathWardUsed;
+      let survivorEvolved = false;
+      if (updatedPlayerHp <= 0 && activePlayer.trait.traitId === 'survivor' && !deathWardUsed) {
+        updatedPlayerHp = 1;
+        deathWardUsed = true;
+        survivorEvolved = true;
+        roundSummary += ' 🛡️ SURVIVOR DEFICIT: Refused to fall! Clung on with 1 HP!';
+      }
+
+      // Survivor: Ironclad end-of-combat heal
+      if (updatedGoblinHp <= 0 && activePlayer.trait.traitId === 'survivor' && activePlayer.trait.isEvolved) {
+        if (updatedPlayerHp < Math.floor(activePlayer.maxHp * 0.5)) {
+          updatedPlayerHp = Math.min(activePlayer.maxHp, updatedPlayerHp + 1);
+          roundSummary += ' [Ironclad: Restored 1 HP after combat victory!]';
+        }
+      }
 
       // Weapon durability consumption
       let updatedHand = [...activePlayer.hand];
       let updatedEquippedId = activePlayer.equippedWeaponId;
 
       if (equipped) {
-        const nextDurability = equipped.durability - 1;
-        if (nextDurability <= 0) {
-          updatedHand = updatedHand.filter((c) => c.id !== equipped.id);
-          updatedEquippedId = null;
-          roundSummary += ` Your [${equipped.name}] shattered!`;
+        const isCrit = playerHighest === 6;
+        const isJunkArchitect = activePlayer.trait.traitId === 'kludge_master' && activePlayer.trait.isEvolved;
+
+        if (isCrit && isJunkArchitect) {
+          roundSummary += ` (Junk Architect critical roll: [${equipped.name}] durability preserved!)`;
         } else {
-          updatedHand = updatedHand.map((c) =>
-            c.id === equipped.id ? { ...c, durability: nextDurability } : c
-          );
+          const nextDurability = equipped.durability - 1;
+          if (nextDurability <= 0) {
+            updatedHand = updatedHand.filter((c) => c.id !== equipped.id);
+            updatedEquippedId = null;
+            roundSummary += ` Your [${equipped.name}] shattered!`;
+          } else {
+            updatedHand = updatedHand.map((c) =>
+              c.id === equipped.id ? { ...c, durability: nextDurability } : c
+            );
+          }
         }
       }
 
       let updatedRoomGoblins = state.houseState[activePlayer.currentRoom].goblins;
-      if (updatedGoblinHp <= 0) {
+      let knockbackDest: RoomId | null = null;
+
+      // Pit Fighter knockback on remaining goblin
+      if (isEvolvedBrawler && (winner === 'player' || winner === 'tie_defender') && updatedGoblinHp > 0) {
+        const currentConns = ROOMS_GRAPH[activePlayer.currentRoom].connectedRoomIds;
+        if (currentConns.length > 0) {
+          const destId = currentConns[0];
+          knockbackDest = destId;
+          updatedRoomGoblins = updatedRoomGoblins.filter((g) => g.id !== goblin.id);
+          roundSummary += ` [Pit Fighter Knockback: Hurled ${goblin.name} into the ${ROOMS_GRAPH[destId].name}!]`;
+        }
+      } else if (updatedGoblinHp <= 0) {
         updatedRoomGoblins = updatedRoomGoblins.filter((g) => g.id !== goblin.id);
       }
 
@@ -1053,6 +1287,36 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const allSiblingsDowned = state.players.every((p) =>
         p.id === activePlayer.id ? isPlayerDowned : p.isDowned || p.hp <= 0
       );
+
+      // Trait Evolution advances
+      let evoPlayer: PlayerData = { ...activePlayer, deathWardUsed };
+      let evoLogs: GameLogEntry[] = [];
+
+      if (survivorEvolved) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'SURVIVE_LETHAL', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      } else if (updatedGoblinHp <= 0) {
+        if (isBrawler) {
+          const evoRes = advancePlayerEvolution(evoPlayer, 'COMBAT_WIN', 1);
+          evoPlayer = evoRes.updatedPlayer;
+          if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+        } else if (isPackLeader && hasAssist) {
+          const evoRes = advancePlayerEvolution(evoPlayer, 'GROUP_COMBAT', 1);
+          evoPlayer = evoRes.updatedPlayer;
+          if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+        } else if (isAnimalLover && isBeast) {
+          const evoRes = advancePlayerEvolution(evoPlayer, 'CALM_OR_DEFEAT_BEAST', 1);
+          evoPlayer = evoRes.updatedPlayer;
+          if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+        }
+      }
+
+      if (isBigSibling && hasAssist && damageTaken > 0) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'PROTECT_SIBLING', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      }
 
       const combatLog: GameLogEntry = {
         id: `log_${Date.now()}`,
@@ -1085,11 +1349,84 @@ export function gameReducer(state: GameState, action: Action): GameState {
         roundSummary,
       };
 
-      const nextState = updateActivePlayerData(state, (p) => ({
+      const nextState = updateActivePlayerData(state, () => ({
+        trait: evoPlayer.trait,
+        evolutionProgress: evoPlayer.evolutionProgress,
+        deathWardUsed: evoPlayer.deathWardUsed,
         hp: updatedPlayerHp,
         isDowned: isPlayerDowned,
         hand: updatedHand,
         equippedWeaponId: updatedEquippedId,
+      }));
+
+      const newHouseState = {
+        ...state.houseState,
+        [activePlayer.currentRoom]: {
+          ...state.houseState[activePlayer.currentRoom],
+          goblins: updatedRoomGoblins,
+        },
+      };
+
+      if (knockbackDest) {
+        newHouseState[knockbackDest] = {
+          ...newHouseState[knockbackDest],
+          goblins: [...newHouseState[knockbackDest].goblins, { ...goblin, hp: updatedGoblinHp }],
+        };
+      }
+
+      return {
+        ...nextState,
+        houseState: newHouseState,
+        activeEnemies: updatedRoomGoblins,
+        activeDuel: updatedDuel,
+        gameLog: [...evoLogs, combatLog, ...state.gameLog],
+        phase: allSiblingsDowned ? 'defeat' : state.phase,
+      };
+    }
+
+    case 'PARLEY_GOBLINS': {
+      if (activePlayer.actionsLeft <= 0) return state;
+      const roomGoblins = state.houseState[activePlayer.currentRoom].goblins;
+      if (roomGoblins.length === 0) return state;
+
+      const isGoblinTalker = activePlayer.trait.traitId === 'goblin_talker';
+      const isEvolved = isGoblinTalker && activePlayer.trait.isEvolved;
+
+      // Parley pacifies or distracts one goblin
+      const targetGoblin = roomGoblins[0];
+      const remainingGoblins = roomGoblins.slice(1);
+
+      let lootItem: PlayerCard | null = null;
+      if (isEvolved) {
+        const room = ROOMS_GRAPH[activePlayer.currentRoom];
+        const lootId = room.searchTable[0]?.itemId || 'shiny_trinket';
+        const itemTemplate = ITEMS_REGISTRY[lootId] || ITEMS_REGISTRY['fork'];
+        lootItem = { ...itemTemplate, id: `loot_${Date.now()}` };
+      }
+
+      let evoPlayer = activePlayer;
+      let evoLogs: GameLogEntry[] = [];
+      if (isGoblinTalker) {
+        const evoRes = advancePlayerEvolution(evoPlayer, 'PARLEY_SUCCESS', 1);
+        evoPlayer = evoRes.updatedPlayer;
+        if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+      }
+
+      const parleyLog: GameLogEntry = {
+        id: `log_${Date.now()}`,
+        turn: state.roundNumber,
+        category: 'narrative',
+        timestamp: `Round ${state.roundNumber}`,
+        title: `Parleyed with ${targetGoblin.name}!`,
+        message: `${activePlayer.name} chattered in high-pitched Gobblese, convincing ${targetGoblin.name} to back down!${
+          lootItem ? ` The goblin bribed you with [${lootItem.name}]!` : ''
+        }`,
+      };
+
+      const nextState = updateActivePlayerData(state, (p) => ({
+        ...evoPlayer,
+        hand: lootItem ? [...p.hand, lootItem] : p.hand,
+        actionsLeft: Math.max(0, p.actionsLeft - 1),
       }));
 
       return {
@@ -1098,14 +1435,130 @@ export function gameReducer(state: GameState, action: Action): GameState {
           ...state.houseState,
           [activePlayer.currentRoom]: {
             ...state.houseState[activePlayer.currentRoom],
-            goblins: updatedRoomGoblins,
+            goblins: remainingGoblins,
           },
         },
-        activeEnemies: updatedRoomGoblins,
-        activeDuel: updatedDuel,
-        gameLog: [combatLog, ...state.gameLog],
-        phase: allSiblingsDowned ? 'defeat' : state.phase,
+        activeEnemies: remainingGoblins,
+        phase: remainingGoblins.length > 0 ? 'combat' : 'exploration',
+        activeDuel: null,
+        gameLog: [...evoLogs, parleyLog, ...state.gameLog],
       };
+    }
+
+    case 'CALM_BEASTS': {
+      if (activePlayer.actionsLeft <= 0) return state;
+      const roomGoblins = state.houseState[activePlayer.currentRoom].goblins;
+      const beastIndex = roomGoblins.findIndex(
+        (g) =>
+          g.id.startsWith('scrapper_slipper') ||
+          g.name.toLowerCase().includes('hound') ||
+          g.name.toLowerCase().includes('biter') ||
+          g.specialRule.toLowerCase().includes('beast')
+      );
+
+      if (beastIndex === -1) return state;
+
+      const beast = roomGoblins[beastIndex];
+      const remainingGoblins = roomGoblins.filter((_, idx) => idx !== beastIndex);
+
+      let evoPlayer = activePlayer;
+      let evoLogs: GameLogEntry[] = [];
+      const evoRes = advancePlayerEvolution(evoPlayer, 'CALM_OR_DEFEAT_BEAST', 1);
+      evoPlayer = evoRes.updatedPlayer;
+      if (evoRes.evolvedLog) evoLogs.push(evoRes.evolvedLog);
+
+      const calmLog: GameLogEntry = {
+        id: `log_${Date.now()}`,
+        turn: state.roundNumber,
+        category: 'narrative',
+        timestamp: `Round ${state.roundNumber}`,
+        title: `Calmed ${beast.name}`,
+        message: `${activePlayer.name} whistled a soothing tune, redirecting the beast out of the room!`,
+      };
+
+      const nextState = updateActivePlayerData(state, (p) => ({
+        ...evoPlayer,
+        actionsLeft: Math.max(0, p.actionsLeft - 1),
+      }));
+
+      return {
+        ...nextState,
+        houseState: {
+          ...state.houseState,
+          [activePlayer.currentRoom]: {
+            ...state.houseState[activePlayer.currentRoom],
+            goblins: remainingGoblins,
+          },
+        },
+        activeEnemies: remainingGoblins,
+        phase: remainingGoblins.length > 0 ? 'combat' : 'exploration',
+        activeDuel: null,
+        gameLog: [...evoLogs, calmLog, ...state.gameLog],
+      };
+    }
+
+    case 'EVOLVE_TRAIT': {
+      const playerIndex = state.players.findIndex((p) => p.id === action.playerId);
+      if (playerIndex === -1) return state;
+      const targetPlayer = state.players[playerIndex];
+      if (targetPlayer.trait.isEvolved) return state;
+
+      const evolvedTrait: SiblingTrait = {
+        ...targetPlayer.trait,
+        isEvolved: true,
+      };
+
+      const evoLog: GameLogEntry = {
+        id: `log_${Date.now()}`,
+        turn: state.roundNumber,
+        category: 'narrative',
+        timestamp: `Round ${state.roundNumber}`,
+        title: `★ Trait Evolved: ${evolvedTrait.evolvedName}!`,
+        message: `${targetPlayer.name} has unlocked the evolved trait [${evolvedTrait.evolvedName}]! ${evolvedTrait.evolvedDescription}`,
+      };
+
+      const updatedPlayers = state.players.map((p, idx) =>
+        idx === playerIndex
+          ? {
+              ...p,
+              trait: evolvedTrait,
+              evolutionProgress: p.evolutionGoal,
+            }
+          : p
+      );
+
+      return {
+        ...state,
+        players: updatedPlayers,
+        gameLog: [evoLog, ...state.gameLog],
+      };
+    }
+
+    case 'SELECT_TRAIT': {
+      const playerIndex = state.players.findIndex((p) => p.id === action.playerId);
+      if (playerIndex === -1) return state;
+      const newTrait = MASTER_TRAITS_ROSTER[action.traitId];
+      if (!newTrait) return state;
+
+      const updatedPlayers = state.players.map((p, idx) => {
+        if (idx === playerIndex) {
+          const maxHpDiff = (newTrait.baseModifiers.maxHpBonus || 0) - (p.trait.baseModifiers.maxHpBonus || 0);
+          return {
+            ...p,
+            trait: { ...newTrait },
+            evolutionProgress: 0,
+            evolutionGoal: newTrait.evolutionTrigger.targetCount,
+            hp: Math.max(1, p.hp + maxHpDiff),
+            maxHp: Math.max(1, p.maxHp + maxHpDiff),
+          };
+        }
+        return p;
+      });
+
+      return syncActivePlayer({
+        ...state,
+        players: updatedPlayers,
+      });
     }
 
     case 'CLOSE_COMBAT': {

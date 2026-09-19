@@ -46,6 +46,7 @@ function sanitizeRoom(room: ServerRoom): OnlineRoomInfo {
       id: p.id,
       name: p.name,
       siblingId: p.siblingId,
+      traitId: p.traitId,
       color: p.color,
       isHost: p.isHost,
       isReady: p.isReady,
@@ -83,7 +84,7 @@ async function startServer() {
 
   // Create a new room
   app.post('/api/rooms/create', (req, res) => {
-    const { hostName, siblingId, customCode, difficulty = 'standard' } = req.body;
+    const { hostName, siblingId, traitId, customCode, difficulty = 'standard' } = req.body;
     const name = (hostName || 'Player 1').trim();
     const rawCode = (customCode || generateRoomCode()).trim().toUpperCase();
     const cleanCode = rawCode.replace(/[^A-Z0-9-]/g, '').slice(0, 12);
@@ -96,6 +97,7 @@ async function startServer() {
       id: playerId,
       name,
       siblingId: selectedSibling,
+      traitId: traitId || undefined,
       color: PLAYER_COLORS[0]?.id || 'amber',
       isHost: true,
       isReady: true,
@@ -128,7 +130,7 @@ async function startServer() {
 
   // Join an existing room
   app.post('/api/rooms/join', (req, res) => {
-    const { roomId: rawRoomId, name: rawName, siblingId } = req.body;
+    const { roomId: rawRoomId, name: rawName, siblingId, traitId } = req.body;
     if (!rawRoomId || !rawName) {
       return res.status(400).json({ error: 'Room code and your name are required' });
     }
@@ -146,6 +148,7 @@ async function startServer() {
     if (existingPlayer) {
       existingPlayer.lastSeen = Date.now();
       if (siblingId) existingPlayer.siblingId = siblingId;
+      if (traitId) existingPlayer.traitId = traitId;
       return res.json({
         success: true,
         roomId,
@@ -173,6 +176,7 @@ async function startServer() {
       id: playerId,
       name,
       siblingId: assignedSibling,
+      traitId: traitId || undefined,
       color: PLAYER_COLORS[colorIndex]?.id || 'emerald',
       isHost: false,
       isReady: true,
@@ -224,10 +228,11 @@ async function startServer() {
     }
 
     // Convert room.players into PlayerConfig[]
-    const configs: PlayerConfig[] = room.players.map((p, idx) => ({
+    const configs: PlayerConfig[] = room.players.map((p) => ({
       id: p.id,
       name: p.name,
       siblingId: p.siblingId,
+      traitId: p.traitId,
       color: p.color,
     }));
 
@@ -372,12 +377,24 @@ async function startServer() {
             action: msg.action,
             fromPlayerId: playerId,
           });
+        } else if (msg.type === 'UPDATE_PLAYER') {
+          if (player) {
+            if (msg.name) player.name = msg.name;
+            if (msg.siblingId) player.siblingId = msg.siblingId;
+            if (msg.traitId) player.traitId = msg.traitId;
+            if (typeof msg.isReady === 'boolean') player.isReady = msg.isReady;
+            broadcastToRoom(room, {
+              type: 'ROOM_UPDATE',
+              room: sanitizeRoom(room),
+            });
+          }
         } else if (msg.type === 'START_GAME') {
           if (room.hostPlayerId === playerId) {
             const configs: PlayerConfig[] = room.players.map((p) => ({
               id: p.id,
               name: p.name,
               siblingId: p.siblingId,
+              traitId: p.traitId,
               color: p.color,
             }));
             const initialState = createInitialState({

@@ -17,8 +17,8 @@ import {
   Footprints,
   Play,
 } from 'lucide-react';
-import { OnlineRoomInfo, OnlineRoomPlayer } from '../types/game';
-import { SIBLINGS_ROSTER, PLAYER_COLORS } from '../data/gameData';
+import { OnlineRoomInfo, OnlineRoomPlayer, TraitId } from '../types/game';
+import { SIBLINGS_ROSTER, PLAYER_COLORS, MASTER_TRAITS_ROSTER } from '../data/gameData';
 import { sound } from '../utils/audio';
 
 interface OnlineLobbyModalProps {
@@ -29,8 +29,9 @@ interface OnlineLobbyModalProps {
   isHost: boolean;
   isConnecting: boolean;
   error: string | null;
-  onCreateRoom: (hostName: string, siblingId: string, customCode?: string) => Promise<any>;
-  onJoinRoom: (roomId: string, name: string, siblingId: string) => Promise<any>;
+  onCreateRoom: (hostName: string, siblingId: string, customCode?: string, difficulty?: any, traitId?: TraitId) => Promise<any>;
+  onJoinRoom: (roomId: string, name: string, siblingId: string, traitId?: TraitId) => Promise<any>;
+  onUpdatePlayer?: (updates: { name?: string; siblingId?: string; traitId?: TraitId }) => void;
   onStartGame: () => Promise<void>;
   onSwitchToLocalGroup: () => void;
 }
@@ -45,6 +46,7 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
   error,
   onCreateRoom,
   onJoinRoom,
+  onUpdatePlayer,
   onStartGame,
   onSwitchToLocalGroup,
 }) => {
@@ -52,6 +54,7 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
   const [name, setName] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [selectedSibling, setSelectedSibling] = useState<string>('leo');
+  const [selectedTrait, setSelectedTrait] = useState<TraitId>('animal_lover');
   const [copied, setCopied] = useState(false);
 
   // Check URL query parameters for ?room=XYZ
@@ -82,7 +85,7 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
     e.preventDefault();
     if (!name.trim() || !roomCode.trim()) return;
     try {
-      await onJoinRoom(roomCode.trim().toUpperCase(), name.trim(), selectedSibling);
+      await onJoinRoom(roomCode.trim().toUpperCase(), name.trim(), selectedSibling, selectedTrait);
     } catch (err) {
       // Handled by hook error state
     }
@@ -92,7 +95,7 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      await onCreateRoom(name.trim(), selectedSibling, roomCode.trim() || undefined);
+      await onCreateRoom(name.trim(), selectedSibling, roomCode.trim() || undefined, 'standard', selectedTrait);
     } catch (err) {
       // Handled by hook error state
     }
@@ -192,49 +195,88 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {room.players.map((player) => {
                   const sibling = SIBLINGS_ROSTER.find((s) => s.id === player.siblingId) || SIBLINGS_ROSTER[0];
+                  const trait = MASTER_TRAITS_ROSTER[player.traitId || 'animal_lover'];
                   const isMe = player.id === localPlayerId;
 
                   return (
                     <div
                       key={player.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
+                      className={`p-3 rounded-xl border flex flex-col gap-2 ${
                         isMe
                           ? 'bg-amber-950/40 border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
                           : 'bg-slate-950/80 border-slate-800'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-300 shrink-0">
-                          {sibling.name.charAt(0)}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-xs text-slate-100 truncate max-w-[110px]">
-                              {player.name}
-                            </span>
-                            {player.isHost && (
-                              <span title="Squad Host" className="inline-flex">
-                                <Crown className="w-3 h-3 text-amber-400 shrink-0" />
-                              </span>
-                            )}
-                            {isMe && (
-                              <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1 rounded font-semibold shrink-0">
-                                YOU
-                              </span>
-                            )}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-300 shrink-0">
+                            {sibling.name.charAt(0)}
                           </div>
-                          <span className="text-[10px] text-slate-400 block truncate">
-                            {sibling.name.split(' ')[0]} ({sibling.trait})
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs text-slate-100 truncate max-w-[110px]">
+                                {player.name}
+                              </span>
+                              {player.isHost && (
+                                <span title="Squad Host" className="inline-flex">
+                                  <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+                                </span>
+                              )}
+                              {isMe && (
+                                <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1 rounded font-semibold shrink-0">
+                                  YOU
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 block truncate">
+                              {sibling.name.split(' ')[0]} ({sibling.role} - {sibling.hp} HP)
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            Ready
                           </span>
                         </div>
                       </div>
 
-                      <div className="shrink-0 flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          Ready
-                        </span>
+                      {/* Trait Badge & Details */}
+                      <div className="bg-slate-900/90 rounded-lg p-2 border border-slate-800 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-amber-300 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-amber-400" />
+                            {trait ? trait.name : 'Animal Lover'}
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-medium">
+                            {trait ? trait.type : 'Utility'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-tight italic line-clamp-2">
+                          {trait ? trait.description : 'Pet & Beast Synergy'}
+                        </p>
                       </div>
+
+                      {/* Live In-Lobby Customization for Local Player */}
+                      {isMe && onUpdatePlayer && (
+                        <div className="pt-1 border-t border-slate-800/80 flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-1 text-[10px]">
+                            <span className="text-slate-400 font-bold uppercase">Change Trait:</span>
+                            <select
+                              value={player.traitId || 'animal_lover'}
+                              onChange={(e) => onUpdatePlayer({ traitId: e.target.value as TraitId })}
+                              className="bg-slate-900 border border-amber-900/60 rounded px-2 py-0.5 text-[10px] text-amber-300 font-bold focus:outline-none cursor-pointer"
+                            >
+                              {Object.values(MASTER_TRAITS_ROSTER).map((t) => (
+                                <option key={t.traitId} value={t.traitId}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -376,6 +418,27 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
                   </div>
                 </div>
 
+                {/* Sibling Trait Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-amber-300 uppercase tracking-wider mb-1.5">
+                    Choose Your Sibling Trait:
+                  </label>
+                  <select
+                    value={selectedTrait}
+                    onChange={(e) => setSelectedTrait(e.target.value as TraitId)}
+                    className="w-full bg-slate-950 border border-amber-900/60 rounded-xl px-3 py-2 text-xs text-amber-200 font-semibold focus:outline-none focus:border-amber-400 cursor-pointer"
+                  >
+                    {Object.values(MASTER_TRAITS_ROSTER).map((trait) => (
+                      <option key={trait.traitId} value={trait.traitId}>
+                        {trait.name} ({trait.type}) - {trait.primaryFocus}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-400 mt-1 italic leading-tight">
+                    {MASTER_TRAITS_ROSTER[selectedTrait]?.description}
+                  </p>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isConnecting || !name.trim() || !roomCode.trim()}
@@ -446,6 +509,27 @@ export const OnlineLobbyModal: React.FC<OnlineLobbyModalProps> = ({
                       );
                     })}
                   </div>
+                </div>
+
+                {/* Sibling Trait Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-amber-300 uppercase tracking-wider mb-1.5">
+                    Choose Your Sibling Trait:
+                  </label>
+                  <select
+                    value={selectedTrait}
+                    onChange={(e) => setSelectedTrait(e.target.value as TraitId)}
+                    className="w-full bg-slate-950 border border-amber-900/60 rounded-xl px-3 py-2 text-xs text-amber-200 font-semibold focus:outline-none focus:border-amber-400 cursor-pointer"
+                  >
+                    {Object.values(MASTER_TRAITS_ROSTER).map((trait) => (
+                      <option key={trait.traitId} value={trait.traitId}>
+                        {trait.name} ({trait.type}) - {trait.primaryFocus}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-400 mt-1 italic leading-tight">
+                    {MASTER_TRAITS_ROSTER[selectedTrait]?.description}
+                  </p>
                 </div>
 
                 <button
