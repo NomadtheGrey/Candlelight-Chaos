@@ -1,0 +1,6 @@
+{
+  "name": "Candlelight Chaos: The Night the Goblins Came",
+  "description": "Card-driven interactive narrative and tactical defense game where siblings defend their home against escalating goblin waves with junk-magic Kludge weapons.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
